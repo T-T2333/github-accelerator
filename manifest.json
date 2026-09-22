@@ -1,0 +1,15 @@
+{
+  "id": "github-accelerator",
+  "name": "GitHub 加速源",
+  "version": "1.0.0",
+  "description": "为 EchoMusic 更新与插件下载提供 GitHub 公益加速源选择、测速与一键应用。基于 XIU2 Github Enhancement（GPL-3.0）移植。",
+  "author": "T-T2333（原脚本作者 X.I.U）",
+  "icon": "icon.png",
+  "main": "index.js",
+  "capabilities": {
+    "unrestrictedNetwork": true
+  },
+  "requires": {
+    "echoMusicVersion": ">=2.2.6"
+  }
+}
