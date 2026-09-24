@@ -25,7 +25,6 @@
   },
   "providers": {},
   "extra": [
-    "https://hk.gh-proxy.org",
-    "https://test-sync-canary.example.com"
+    "https://hk.gh-proxy.org"
   ]
 }

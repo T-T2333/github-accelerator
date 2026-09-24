@@ -54,7 +54,6 @@ const MIRRORS = [
   { base: "https://cdn.gh-proxy.org", region: "其他", note: "[Fastly CDN] - 该公益加速源由 [gh-proxy.com] 提供" },
   { base: "https://edgeone.gh-proxy.org", region: "其他", note: "[edgeone] - 该公益加速源由 [gh-proxy.com] 提供" },
   { base: "https://ghproxy.net", region: "其他", note: "[法国] - 该公益加速源由 [ghproxy.net] 提供" },
-  { base: "https://test-sync-canary.example.com", region: "其他", note: "由本插件维护的额外加速源" },
   { base: "https://wget.la", region: "其他", note: "[中国香港、中国台湾、日本、美国等]（CDN 不固定） - 该公益加速源由 [ucdn.me] 提供" },
 ];
 // MIRRORS:END
