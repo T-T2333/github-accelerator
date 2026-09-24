@@ -1,5 +1,6 @@
 node_modules/
 *.log
 mirror-report.txt
+pr-body.md
 .DS_Store
 Thumbs.db

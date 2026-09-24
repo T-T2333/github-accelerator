@@ -2,14 +2,8 @@ name: Sync upstream mirrors
 
 on:
   schedule:
-    - name: Daily mirror sync
-      cron: "17 3 * * *"
+    - cron: "17 3 * * *"
   workflow_dispatch:
-    inputs:
-      prune_dead:
-        description: "自动将失效源写入 exclude"
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -34,20 +28,42 @@ jobs:
       - name: Sync mirror list from upstream
         id: sync
         run: |
-          set -euo pipefail
-          if node scripts/sync-mirrors.mjs; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
+          set -uo pipefail
+          node scripts/sync-mirrors.mjs || echo "::warning::同步脚本执行失败，将跳过本次同步"
           if git diff --quiet -- index.js mirrors.generated.json; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "上游无变化"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "检测到上游变化："
+            git diff --stat -- index.js mirrors.generated.json
           fi
 
       - name: Probe mirror availability
         if: steps.sync.outputs.changed == 'true'
         continue-on-error: true
-        run: node scripts/probe-mirrors.mjs | tee mirror-report.txt
+        run: node scripts/probe-mirrors.mjs > mirror-report.txt 2>&1 || true
+
+      - name: Build pull request body
+        if: steps.sync.outputs.changed == 'true'
+        run: |
+          {
+            echo "自动同步 [XIU2/UserScript](https://github.com/XIU2/UserScript) 中"
+            echo "\`GithubEnhanced-High-Speed-Download.user.js\` 的公益加速源列表。"
+            echo ""
+            echo "- 仅保留与宿主 \`\${加速源}/\${原始URL}\` 拼接格式兼容的条目"
+            echo "- 跳过上游已用 \`//\` 注释掉的失效源"
+            echo "- 过滤路径式镜像（如 \`https://x.com/github.com\`，拼接后必然失效）"
+            echo "- 应用 \`mirrors.overrides.json\` 的 exclude / extra"
+            echo ""
+            echo "### 镜像可用性实测"
+            echo ""
+            echo '```'
+            cat mirror-report.txt 2>/dev/null || echo "（未执行）"
+            echo '```'
+            echo ""
+            echo "> 由 [sync-mirrors.yml](https://github.com/\${{ github.repository }}/blob/main/.github/workflows/sync-mirrors.yml) 自动创建，合并前请人工确认。"
+          } > pr-body.md
 
       - name: Open sync pull request
         if: steps.sync.outputs.changed == 'true'
@@ -57,19 +73,9 @@ jobs:
           base: main
           title: "chore: sync upstream mirror list"
           commit-message: "chore: sync upstream mirror list"
-          body: |
-            自动同步 [XIU2/UserScript](https://github.com/XIU2/UserScript) 中
-            `GithubEnhanced-High-Speed-Download.user.js` 的加速源列表。
-
-            - 仅保留与 EchoMusic `${加速源}/${原始URL}` 拼接格式兼容的条目
-            - 跳过上游已注释掉的失效源
-            - 应用 `mirrors.overrides.json` 中的 exclude / 人工补充
-
-            ### 镜像可用性报告
-            ```
-            $(cat mirror-report.txt 2>/dev/null || echo "未执行")
-            ```
+          body-file: pr-body.md
           labels: automated
+          delete-branch: true
 
       - name: Summary
         run: |
