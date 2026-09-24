@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-24T11:39:01.377Z",
+  "generatedAt": "2026-09-24T11:40:46.937Z",
   "upstream": {
     "url": "https://api.github.com/repos/XIU2/UserScript/contents/GithubEnhanced-High-Speed-Download.user.js",
     "page": "https://github.com/XIU2/UserScript",
@@ -8,7 +8,7 @@
       "download_url_us"
     ]
   },
-  "count": 21,
+  "count": 22,
   "mirrors": [
     {
       "base": "https://cdn.crashmc.com",
@@ -149,6 +149,13 @@
       "note": "[法国] - 该公益加速源由 [ghproxy.net] 提供",
       "provider": "",
       "origins": "download_url_us"
+    },
+    {
+      "base": "https://test-sync-canary.example.com",
+      "region": "其他",
+      "note": "由本插件维护的额外加速源",
+      "provider": "",
+      "origins": "extra"
     },
     {
       "base": "https://wget.la",
