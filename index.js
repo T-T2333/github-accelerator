@@ -15,13 +15,9 @@ const RESULT_KEY = "speed-test";
 const RESULT_TTL_MS = 30 * 60 * 1000;
 const TEST_CONCURRENCY = 4;
 const TEST_TIMEOUT_MS = 12000;
-const THROUGHPUT_TIMEOUT_MS = 20000;
 
-// 延迟探测用小文件；吞吐探测用中等体积文件，更贴近更新包/插件 zip 的真实下载体验
-const LATENCY_TARGET =
+const TEST_PATH =
   "https://raw.githubusercontent.com/hoowhoami/EchoMusic/main/package.json";
-const THROUGHPUT_TARGET =
-  "https://github.com/XIU2/UserScript/archive/refs/heads/master.zip";
 
 const DEFAULT_SETTINGS = {
   autoApply: false,
@@ -132,11 +128,11 @@ const fetchWithTimeout = (url, timeoutMs) =>
 
 const testMirror = async (ctx, base) => {
   const normalized = normalizeBase(base);
-  const result = { ok: false, latency: null, throughput: null, error: "" };
+  const result = { ok: false, latency: null, error: "" };
   try {
     const start = performance.now();
     const response = await fetchWithTimeout(
-      `${normalized}/${LATENCY_TARGET}`,
+      `${normalized}/${TEST_PATH}`,
       TEST_TIMEOUT_MS,
     );
     result.latency = Math.round(performance.now() - start);
@@ -148,23 +144,6 @@ const testMirror = async (ctx, base) => {
     result.ok = true;
   } catch (error) {
     result.error = error.name === "TimeoutError" ? "超时" : error.message;
-    return result;
-  }
-
-  try {
-    const start = performance.now();
-    const response = await fetchWithTimeout(
-      `${normalized}/${THROUGHPUT_TARGET}`,
-      THROUGHPUT_TIMEOUT_MS,
-    );
-    if (!response.ok) return result;
-    const bytes = (await response.arrayBuffer()).byteLength;
-    const seconds = (performance.now() - start) / 1000;
-    if (seconds > 0 && bytes > 0) {
-      result.throughput = +((bytes * 8) / seconds / 1e6).toFixed(2);
-    }
-  } catch {
-    result.throughput = null;
   }
   return result;
 };
@@ -236,31 +215,18 @@ const runSpeedTest = async (ctx, options = {}) => {
   }
 };
 
-// 排序依据优先级：吞吐 > 延迟。更新包与插件 zip 通常为数十 MB 以上，
-// 单纯按小文件延迟排序会选出「握手快但带宽差」的源。
-const rankResults = (results) =>
-  Object.entries(results)
-    .filter(([, result]) => result.ok)
-    .sort(([, a], [, b]) => {
-      const at = typeof a.throughput === "number" ? a.throughput : -1;
-      const bt = typeof b.throughput === "number" ? b.throughput : -1;
-      if (at !== bt) return bt - at;
-      return (a.latency ?? Infinity) - (b.latency ?? Infinity);
-    });
-
 const applyFastest = async (ctx) => {
-  const candidates = rankResults(state.results);
+  const candidates = Object.entries(state.results).filter(
+    ([, result]) => result.ok && typeof result.latency === "number",
+  );
   if (!candidates.length) {
     ctx.toast.warning("暂无可用的测速结果，请先测速");
     return;
   }
+  candidates.sort((a, b) => a[1].latency - b[1].latency);
   const [fastest, meta] = candidates[0];
   await applyAccelerator(ctx, fastest);
-  ctx.toast.info(
-    typeof meta.throughput === "number"
-      ? `最快加速源 ${meta.throughput} Mbps / ${meta.latency}ms`
-      : `最快加速源延迟 ${meta.latency}ms`,
-  );
+  ctx.toast.info(`最快加速源延迟 ${meta.latency}ms`);
 };
 
 const checkUpdates = async (ctx) => {
@@ -484,21 +450,17 @@ const createSettingsComponent = (ctx) =>
       const latencyMeta = (base) => {
         const result = state.results?.[base];
         if (!result) return { text: "未测速", className: "", title: "" };
-        if (!result.ok) {
-          return { text: result.error || "失败", className: "is-fail", title: result.error || "" };
+        if (result.ok) {
+          return {
+            text: `${result.latency}ms`,
+            className: "is-ok",
+            title: `响应延迟 ${result.latency} ms`,
+          };
         }
-        const parts = [];
-        if (typeof result.throughput === "number") parts.push(`${result.throughput}Mbps`);
-        if (typeof result.latency === "number") parts.push(`${result.latency}ms`);
         return {
-          text: parts.join(" / ") || "可用",
-          className: "is-ok",
-          title: [
-            typeof result.throughput === "number" ? `下载速度 ${result.throughput} Mbps` : "",
-            typeof result.latency === "number" ? `响应延迟 ${result.latency} ms` : "",
-          ]
-            .filter(Boolean)
-            .join("\n"),
+          text: result.error || "失败",
+          className: "is-fail",
+          title: result.error || "",
         };
       };
 
@@ -648,7 +610,7 @@ const createSettingsComponent = (ctx) =>
             h(
               "p",
               { class: "echo-github-accelerator-hint" },
-              "点击条目即可应用；测速同时统计下载速度与响应延迟，「应用最快」按下载速度优先排序。结果缓存 30 分钟。优先选择美国节点，避免流量集中到亚洲公益节点。",
+              "点击条目即可应用；测速使用 EchoMusic 仓库 package.json 小文件测量响应延迟，「应用最快」按延迟从低到高排序。结果缓存 30 分钟。优先选择美国节点，避免流量集中到亚洲公益节点。",
             ),
           ]),
 

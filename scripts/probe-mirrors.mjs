@@ -4,23 +4,21 @@ const MIRRORS = process.argv[2]
       (m) => m.base,
     );
 
-const LATENCY_TARGET =
+const TEST_TARGET =
   "https://raw.githubusercontent.com/hoowhoami/EchoMusic/main/package.json";
-const THROUGHPUT_TARGET =
-  "https://github.com/XIU2/UserScript/archive/refs/heads/master.zip";
 
 const probe = async (base) => {
   const out = {
     base,
     alive: false,
     latencyMs: null,
-    throughputMbps: null,
     cors: null,
+    status: null,
     error: "",
   };
   try {
     const t0 = performance.now();
-    const res = await fetch(`${base}/${LATENCY_TARGET}`, {
+    const res = await fetch(`${base}/${TEST_TARGET}`, {
       signal: AbortSignal.timeout(12000),
       redirect: "follow",
     });
@@ -35,24 +33,6 @@ const probe = async (base) => {
     await res.arrayBuffer();
   } catch (error) {
     out.error = error.name === "TimeoutError" ? "timeout" : error.message;
-    return out;
-  }
-
-  try {
-    const t0 = performance.now();
-    const res = await fetch(`${base}/${THROUGHPUT_TARGET}`, {
-      signal: AbortSignal.timeout(20000),
-      redirect: "follow",
-    });
-    if (!res.ok) {
-      out.error = `throughput HTTP ${res.status}`;
-      return out;
-    }
-    const bytes = (await res.arrayBuffer()).byteLength;
-    const seconds = (performance.now() - t0) / 1000;
-    out.throughputMbps = +((bytes * 8) / seconds / 1e6).toFixed(2);
-  } catch {
-    out.throughputMbps = null;
   }
   return out;
 };
@@ -74,13 +54,15 @@ const results = await runPool(MIRRORS, 4, probe);
 const alive = results.filter((r) => r.alive);
 const failed = results.filter((r) => !r.alive);
 
-for (const r of alive.sort((a, b) => b.throughputMbps - a.throughputMbps)) {
+for (const r of alive.sort((a, b) => a.latencyMs - b.latencyMs)) {
   console.log(
-    `OK   ${String(r.latencyMs).padStart(5)}ms  ${String(r.throughputMbps ?? "-").padStart(6)} Mbps  ${r.cors === "*" ? "cors*" : "cors-"}  ${r.base}`,
+    `OK   ${String(r.latencyMs).padStart(5)}ms  ${r.cors === "*" ? "cors*" : "cors-"}  ${r.base}`,
   );
 }
 for (const r of failed) {
-  console.log(`DEAD ${String(r.latencyMs ?? "-").padStart(5)}ms  ${"-".padStart(9)}      ${"-".padStart(5)}  ${r.base}  ${r.error}`);
+  console.log(
+    `DEAD ${String(r.latencyMs ?? "-").padStart(5)}ms  ${"-".padStart(5)}  ${r.base}  ${r.error}`,
+  );
 }
 
 console.log(`\nalive ${alive.length}/${results.length}`);
