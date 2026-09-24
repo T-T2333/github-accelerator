@@ -14,7 +14,7 @@
 | 自定义加速源 | 手动输入任意兼容地址 |
 | 启动自动应用 | 记住上次选择，启动时同步到宿主设置 |
 | 检查更新 | 通过当前加速源触发 EchoMusic 检查更新 |
-| 上游同步 | GitHub Actions 每日自动同步上游镜像列表并提 PR |
+| 上游同步 | GitHub Actions 每日自动同步上游镜像列表并直接提交 |
 | 命令 | `apply-selected`、`speed-test`、`check-updates` |
 
 应用后写入宿主「设置 → 网络 → GitHub 加速地址」（`githubProxyUrl`），同时作用于：
@@ -57,8 +57,12 @@ scripts/sync-mirrors.mjs
 index.js 中 MIRRORS:BEGIN..END 标记区 + mirrors.generated.json
         │
         ▼
-GitHub Actions 自动创建同步 PR
+GitHub Actions 直接提交到 main（含可用性实测摘要）
 ```
+
+> EchoMusic 官方插件源通过 `echo-plugins.json` 中的 `repo` 字段直接拉取本仓库，
+> 因此**无需向官方仓库提交 PR**；镜像更新在本仓库 `main` 生效后，
+> 官方源的用户刷新插件列表即可获取新版。
 
 同步支持三个上游源，按顺序回退：
 

@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 concurrency:
   group: sync-mirrors
@@ -29,7 +28,7 @@ jobs:
         id: sync
         run: |
           set -uo pipefail
-          node scripts/sync-mirrors.mjs || echo "::warning::同步脚本执行失败，将跳过本次同步"
+          node scripts/sync-mirrors.mjs || echo "::warning::同步脚本执行失败，跳过本次同步"
           if git diff --quiet -- index.js mirrors.generated.json; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "上游无变化"
@@ -44,47 +43,41 @@ jobs:
         continue-on-error: true
         run: node scripts/probe-mirrors.mjs > mirror-report.txt 2>&1 || true
 
-      - name: Build pull request body
+      - name: Commit and push
         if: steps.sync.outputs.changed == 'true'
         run: |
-          {
-            echo "自动同步 [XIU2/UserScript](https://github.com/XIU2/UserScript) 中"
-            echo "\`GithubEnhanced-High-Speed-Download.user.js\` 的公益加速源列表。"
-            echo ""
-            echo "- 仅保留与宿主 \`\${加速源}/\${原始URL}\` 拼接格式兼容的条目"
-            echo "- 跳过上游已用 \`//\` 注释掉的失效源"
-            echo "- 过滤路径式镜像（如 \`https://x.com/github.com\`，拼接后必然失效）"
-            echo "- 应用 \`mirrors.overrides.json\` 的 exclude / extra"
-            echo ""
-            echo "### 镜像可用性实测"
-            echo ""
-            echo '```'
-            cat mirror-report.txt 2>/dev/null || echo "（未执行）"
-            echo '```'
-            echo ""
-            echo "> 由 [sync-mirrors.yml](https://github.com/\${{ github.repository }}/blob/main/.github/workflows/sync-mirrors.yml) 自动创建，合并前请人工确认。"
-          } > pr-body.md
-
-      - name: Open sync pull request
-        if: steps.sync.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v6
-        with:
-          branch: chore/sync-mirrors
-          base: main
-          title: "chore: sync upstream mirror list"
-          commit-message: "chore: sync upstream mirror list"
-          body-file: pr-body.md
-          labels: automated
-          delete-branch: true
+          set -uo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.js mirrors.generated.json
+          git commit -m "chore(mirrors): sync upstream accelerator list"
+          for i in 1 2 3 4 5; do
+            if git push; then
+              echo "推送成功"
+              break
+            fi
+            echo "::warning::推送失败，第 $i 次重试"
+            sleep $((i * 10))
+          done
 
       - name: Summary
+        if: always()
         run: |
           {
             echo "### 加速源同步"
             echo ""
             if [ "${{ steps.sync.outputs.changed }}" = "true" ]; then
-              echo "检测到上游变化，已创建同步 PR。"
+              echo "检测到上游变化，已提交到 main。"
             else
               echo "上游无变化，无需同步。"
+            fi
+            if [ -f mirror-report.txt ]; then
+              echo ""
+              echo "<details><summary>镜像可用性实测</summary>"
+              echo ""
+              echo '```'
+              cat mirror-report.txt
+              echo '```'
+              echo "</details>"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
