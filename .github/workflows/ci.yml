@@ -26,10 +26,12 @@ jobs:
           for (const key of required) {
             if (!m[key]) throw new Error('manifest 缺少字段: ' + key);
           }
-          if (!m.capabilities || Object.values(m.capabilities).some(Boolean)) {
-            throw new Error('本插件不应申请敏感 capability');
+          const caps = m.capabilities || {};
+          const granted = Object.entries(caps).filter(([, v]) => v).map(([k]) => k);
+          if (granted.length) {
+            throw new Error('本插件不应申请敏感 capability: ' + granted.join(', '));
           }
-          console.log('manifest OK:', m.id, m.version);
+          console.log('manifest OK:', m.id, m.version, '| capabilities: none');
           "
 
       - name: Syntax check
