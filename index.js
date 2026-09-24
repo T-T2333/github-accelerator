@@ -11,9 +11,17 @@
 // (at your option) any later version.
 
 const STORAGE_KEY = "settings";
-const TEST_PATH =
+const RESULT_KEY = "speed-test";
+const RESULT_TTL_MS = 30 * 60 * 1000;
+const TEST_CONCURRENCY = 4;
+const TEST_TIMEOUT_MS = 12000;
+const THROUGHPUT_TIMEOUT_MS = 20000;
+
+// 延迟探测用小文件；吞吐探测用中等体积文件，更贴近更新包/插件 zip 的真实下载体验
+const LATENCY_TARGET =
   "https://raw.githubusercontent.com/hoowhoami/EchoMusic/main/package.json";
-const TEST_TIMEOUT_MS = 10000;
+const THROUGHPUT_TARGET =
+  "https://github.com/XIU2/UserScript/archive/refs/heads/master.zip";
 
 const DEFAULT_SETTINGS = {
   autoApply: false,
@@ -22,37 +30,37 @@ const DEFAULT_SETTINGS = {
 };
 
 // 仅收录与 EchoMusic「${加速源}/${原始URL}」拼接格式兼容的公益加速源
-// 原始列表来自 XIU2 Github Enhancement 脚本（https://greasyfork.org/scripts/412245）
+// 原始列表来自 XIU2 Github Enhancement 脚本（https://github.com/XIU2/UserScript）
+// MIRRORS:BEGIN
+// 由 scripts/sync-mirrors.mjs 自动生成，请勿手动编辑。
+// 数据来源：https://github.com/XIU2/UserScript
+// 上游脚本版本：2.6.41
+// 上游数组：download_url_us
+// 重新生成：npm run sync:mirrors
 const MIRRORS = [
-  { base: "https://gh.h233.eu.org", region: "美国", note: "[美国 Cloudflare CDN] - 由 @X.I.U/XIU2 提供" },
-  { base: "https://gh.ddlc.top", region: "美国", note: "[美国 Cloudflare CDN] - 由 @mtr-static-official 提供" },
-  { base: "https://gh-proxy.org", region: "美国", note: "[美国 Cloudflare CDN] - 由 gh-proxy.com 提供" },
-  { base: "https://ghproxy.it", region: "美国", note: "[美国 洛杉矶] - 由 @yionchilau 提供" },
-  { base: "https://github.boki.moe", region: "美国", note: "[美国 Cloudflare CDN] - 由 blog.boki.moe 提供" },
-  { base: "https://gh.jasonzeng.dev", region: "美国", note: "[美国 Cloudflare CDN] - 由 gh.jasonzeng.dev 提供" },
-  { base: "https://gh.monlor.com", region: "美国", note: "[美国 Cloudflare CDN] - 由 gh.monlor.com 提供" },
-  { base: "https://github.geekery.cn", region: "美国", note: "[美国 Cloudflare CDN] - 由 github.geekery.cn 提供" },
-  { base: "https://github.ednovas.xyz", region: "美国", note: "[美国 Cloudflare CDN] - 由 github.ednovas.xyz 提供" },
-  { base: "https://ghfile.geekertao.top", region: "美国", note: "[美国 Cloudflare CDN] - 由 ghfile.geekertao.top 提供" },
-  { base: "https://ghp.keleyaa.com", region: "美国", note: "[美国 Cloudflare CDN] - 由 ghp.keleyaa.com 提供" },
-  { base: "https://gh.chjina.com", region: "美国", note: "[美国 Cloudflare CDN] - 由 gh.chjina.com 提供" },
-  { base: "https://ghpxy.hwinzniej.top", region: "美国", note: "[美国 Cloudflare CDN] - 由 ghpxy.hwinzniej.top 提供" },
-  { base: "https://cdn.crashmc.com", region: "美国", note: "[美国 Cloudflare CDN] - 由 cdn.crashmc.com 提供" },
-  { base: "https://git.yylx.win", region: "美国", note: "[美国 Cloudflare CDN] - 由 git.yylx.win 提供" },
-  { base: "https://gitproxy.mrhjx.cn", region: "美国", note: "[美国 Cloudflare CDN] - 由 gitproxy.mrhjx.cn 提供" },
-  { base: "https://ghproxy.cxkpro.top", region: "美国", note: "[美国 Cloudflare CDN] - 由 ghproxy.cxkpro.top 提供" },
-  { base: "https://gh.xxooo.cf", region: "美国", note: "[美国 Cloudflare CDN] - 由 gh.xxooo.cf 提供" },
-  { base: "https://gh.idayer.com", region: "美国", note: "[美国 Cloudflare CDN] - 由 gh.idayer.com 提供" },
-  { base: "https://gh.zwy.one", region: "美国", note: "[美国 洛杉矶] - 由 gh.zwy.one 提供" },
-  { base: "https://ghproxy.monkeyray.net", region: "美国", note: "[美国 洛杉矶] - 由 ghproxy.monkeyray.net 提供" },
-  { base: "https://xget.xi-xu.me/gh", region: "美国", note: "[美国 Cloudflare CDN] - 由 xixu-me/Xget 提供" },
-  { base: "https://cdn.gh-proxy.org", region: "其他", note: "[Fastly CDN] - 由 gh-proxy.com 提供" },
-  { base: "https://edgeone.gh-proxy.org", region: "其他", note: "[edgeone] - 由 gh-proxy.com 提供" },
-  { base: "https://ghproxy.net", region: "法国", note: "[法国] - 由 gh-proxy.net 提供。尽量多用美国节点，减轻亚洲公益节点成本压力" },
-  { base: "https://ghfast.top", region: "其他", note: "[日本、韩国、新加坡、美国、德国等]（CDN 不固定）- 由 ghproxy.link 提供。尽量多用美国节点" },
-  { base: "https://wget.la", region: "其他", note: "[中国香港、中国台湾、日本、美国等]（CDN 不固定）- 由 ucdn.me 提供。尽量多用美国节点" },
-  { base: "https://hk.gh-proxy.org", region: "香港", note: "[中国香港] - 由 gh-proxy.com 提供。尽量多用美国节点" },
+  { base: "https://cdn.crashmc.com", region: "美国", note: "[美国 Cloudflare CDN] - 该公益加速源由 [cdn.crashmc.com] 提供" },
+  { base: "https://gh-proxy.org", region: "美国", note: "[美国 Cloudflare CDN] - 该公益加速源由 [gh-proxy.com] 提供" },
+  { base: "https://gh.chjina.com", region: "美国", note: "[美国 Cloudflare CDN] - 该公益加速源由 [gh.chjina.com] 提供" },
+  { base: "https://gh.ddlc.top", region: "美国", note: "[美国 Cloudflare CDN] - 该公益加速源由 [@mtr-static-official] 提供" },
+  { base: "https://gh.idayer.com", region: "美国", note: "[美国 Cloudflare CDN] - 该公益加速源由 [gh.idayer.com] 提供" },
+  { base: "https://gh.monlor.com", region: "美国", note: "[美国 Cloudflare CDN] - 该公益加速源由 [gh.monlor.com] 提供" },
+  { base: "https://gh.xxooo.cf", region: "美国", note: "[美国 Cloudflare CDN] - 该公益加速源由 [gh.xxooo.cf] 提供" },
+  { base: "https://gh.zwy.one", region: "美国", note: "[美国 洛杉矶] - 该公益加速源由 [gh.zwy.one] 提供" },
+  { base: "https://ghfile.geekertao.top", region: "美国", note: "[美国 Cloudflare CDN] - 该公益加速源由 [ghfile.geekertao.top] 提供" },
+  { base: "https://ghproxy.cxkpro.top", region: "美国", note: "[美国 Cloudflare CDN] - 该公益加速源由 [ghproxy.cxkpro.top] 提供" },
+  { base: "https://ghpxy.hwinzniej.top", region: "美国", note: "[美国 Cloudflare CDN] - 该公益加速源由 [ghpxy.hwinzniej.top] 提供" },
+  { base: "https://git.yylx.win", region: "美国", note: "[美国 Cloudflare CDN] - 该公益加速源由 [git.yylx.win] 提供" },
+  { base: "https://github.boki.moe", region: "美国", note: "[美国 Cloudflare CDN] - 该公益加速源由 [blog.boki.moe] 提供" },
+  { base: "https://github.ednovas.xyz", region: "美国", note: "[美国 Cloudflare CDN] - 该公益加速源由 [github.ednovas.xyz] 提供" },
+  { base: "https://github.geekery.cn", region: "美国", note: "[美国 Cloudflare CDN] - 该公益加速源由 [github.geekery.cn] 提供" },
+  { base: "https://gitproxy.mrhjx.cn", region: "美国", note: "[美国 Cloudflare CDN] - 该公益加速源由 [gitproxy.mrhjx.cn] 提供" },
+  { base: "https://hk.gh-proxy.org", region: "香港", note: "[中国香港] - 该公益加速源由 [gh-proxy.com] 提供" },
+  { base: "https://cdn.gh-proxy.org", region: "其他", note: "[Fastly CDN] - 该公益加速源由 [gh-proxy.com] 提供" },
+  { base: "https://edgeone.gh-proxy.org", region: "其他", note: "[edgeone] - 该公益加速源由 [gh-proxy.com] 提供" },
+  { base: "https://ghproxy.net", region: "其他", note: "[法国] - 该公益加速源由 [ghproxy.net] 提供" },
+  { base: "https://wget.la", region: "其他", note: "[中国香港、中国台湾、日本、美国等]（CDN 不固定） - 该公益加速源由 [ucdn.me] 提供" },
 ];
+// MIRRORS:END
 
 let state = null;
 let settingsDispose = null;
@@ -93,13 +101,24 @@ const saveSettings = async (ctx, values) => {
   return next;
 };
 
+// 宿主设置 store 并非公开的插件写入接口，写入后必须回读校验，否则宿主重构时会静默失效
 const applyAccelerator = async (ctx, base) => {
   const normalized = normalizeBase(base);
   if (normalized && !isValidBase(normalized)) {
     ctx.toast.warning("加速源地址无效，需为 http(s) URL");
     return false;
   }
-  ctx.settings.githubProxyUrl = normalized;
+  try {
+    ctx.settings.githubProxyUrl = normalized;
+  } catch (error) {
+    ctx.toast.danger(`无法写入宿主设置：${error.message}`);
+    return false;
+  }
+  const actual = getHostProxy(ctx);
+  if (actual !== normalized) {
+    ctx.toast.danger("宿主未接受该加速源设置，请检查 EchoMusic 版本是否兼容");
+    return false;
+  }
   state.hostProxy = normalized;
   await saveSettings(ctx, { selectedBase: normalized });
   ctx.toast.success(
@@ -108,73 +127,140 @@ const applyAccelerator = async (ctx, base) => {
   return true;
 };
 
+const fetchWithTimeout = (url, timeoutMs) =>
+  fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: "follow" });
+
 const testMirror = async (ctx, base) => {
   const normalized = normalizeBase(base);
-  const url = `${normalized}/${TEST_PATH}`;
-  const start = performance.now();
+  const result = { ok: false, latency: null, throughput: null, error: "" };
   try {
-    const response = await ctx.net.request({
-      url,
-      method: "GET",
-      responseType: "text",
-      timeoutMs: TEST_TIMEOUT_MS,
-      maxRedirects: 5,
-    });
-    const latency = Math.round(performance.now() - start);
-    if (response.status >= 200 && response.status < 300) {
-      return { ok: true, latency, error: "" };
+    const start = performance.now();
+    const response = await fetchWithTimeout(
+      `${normalized}/${LATENCY_TARGET}`,
+      TEST_TIMEOUT_MS,
+    );
+    result.latency = Math.round(performance.now() - start);
+    if (!response.ok) {
+      result.error = `HTTP ${response.status}`;
+      return result;
     }
-    return { ok: false, latency, error: `HTTP ${response.status}` };
+    await response.arrayBuffer();
+    result.ok = true;
   } catch (error) {
-    return {
-      ok: false,
-      latency: null,
-      error: error instanceof Error ? error.message : String(error),
-    };
+    result.error = error.name === "TimeoutError" ? "超时" : error.message;
+    return result;
   }
+
+  try {
+    const start = performance.now();
+    const response = await fetchWithTimeout(
+      `${normalized}/${THROUGHPUT_TARGET}`,
+      THROUGHPUT_TIMEOUT_MS,
+    );
+    if (!response.ok) return result;
+    const bytes = (await response.arrayBuffer()).byteLength;
+    const seconds = (performance.now() - start) / 1000;
+    if (seconds > 0 && bytes > 0) {
+      result.throughput = +((bytes * 8) / seconds / 1e6).toFixed(2);
+    }
+  } catch {
+    result.throughput = null;
+  }
+  return result;
 };
 
-const runSpeedTest = async (ctx) => {
-  if (state.testing) return;
-  state.testing = true;
-  state.testProgress = { done: 0, total: MIRRORS.length };
-  ctx.toast.info(`开始测速 ${MIRRORS.length} 个加速源…`);
+const runPool = async (items, limit, worker) => {
+  const results = [];
+  let cursor = 0;
+  const runners = Array.from(
+    { length: Math.max(1, Math.min(limit, items.length)) },
+    async () => {
+      while (cursor < items.length) {
+        const index = cursor++;
+        results[index] = await worker(items[index]);
+      }
+    },
+  );
+  await Promise.all(runners);
+  return results;
+};
 
-  const entries = [...MIRRORS.map((m) => m.base), state.settings.customBase]
+const collectTestTargets = () =>
+  [...MIRRORS.map((m) => m.base), state.settings.customBase]
     .map(normalizeBase)
     .filter((base, index, arr) => base && arr.indexOf(base) === index);
 
-  state.testProgress.total = entries.length;
+const loadCachedResults = async (ctx) => {
+  const cached = await ctx.storage.get(RESULT_KEY);
+  if (!cached || typeof cached !== "object") return null;
+  if (!cached.timestamp || Date.now() - cached.timestamp > RESULT_TTL_MS) return null;
+  return cached;
+};
+
+const runSpeedTest = async (ctx, options = {}) => {
+  if (state.testing) return;
+  if (options.useCache !== false) {
+    const cached = await loadCachedResults(ctx);
+    if (cached) {
+      state.results = cached.results;
+      state.resultsTimestamp = cached.timestamp;
+      ctx.toast.info("已载入缓存的测速结果（30 分钟内有效）");
+      return;
+    }
+  }
+  const targets = collectTestTargets();
+  state.testing = true;
+  state.testProgress = { done: 0, total: targets.length };
   state.results = {};
+  ctx.toast.info(`开始测速 ${targets.length} 个加速源…`);
 
   try {
-    await Promise.all(
-      entries.map(async (base) => {
-        const result = await testMirror(ctx, base);
-        state.results[base] = result;
-        state.testProgress.done += 1;
-      }),
-    );
-    const okCount = Object.values(state.results).filter((r) => r.ok).length;
-    ctx.toast.success(`测速完成：${okCount}/${entries.length} 个可用`);
+    const results = await runPool(targets, TEST_CONCURRENCY, async (base) => {
+      const result = await testMirror(ctx, base);
+      state.results[base] = result;
+      state.testProgress.done += 1;
+      return result;
+    });
+    state.resultsTimestamp = Date.now();
+    await ctx.storage.set(RESULT_KEY, {
+      timestamp: state.resultsTimestamp,
+      results,
+    });
+    const okCount = results.filter((r) => r.ok).length;
+    ctx.toast.success(`测速完成：${okCount}/${targets.length} 个可用`);
+  } catch (error) {
+    ctx.toast.danger(`测速失败：${error.message}`);
   } finally {
     state.testing = false;
     state.testProgress = null;
   }
 };
 
+// 排序依据优先级：吞吐 > 延迟。更新包与插件 zip 通常为数十 MB 以上，
+// 单纯按小文件延迟排序会选出「握手快但带宽差」的源。
+const rankResults = (results) =>
+  Object.entries(results)
+    .filter(([, result]) => result.ok)
+    .sort(([, a], [, b]) => {
+      const at = typeof a.throughput === "number" ? a.throughput : -1;
+      const bt = typeof b.throughput === "number" ? b.throughput : -1;
+      if (at !== bt) return bt - at;
+      return (a.latency ?? Infinity) - (b.latency ?? Infinity);
+    });
+
 const applyFastest = async (ctx) => {
-  const candidates = Object.entries(state.results).filter(
-    ([, result]) => result.ok && typeof result.latency === "number",
-  );
+  const candidates = rankResults(state.results);
   if (!candidates.length) {
     ctx.toast.warning("暂无可用的测速结果，请先测速");
     return;
   }
-  candidates.sort((a, b) => a[1].latency - b[1].latency);
   const [fastest, meta] = candidates[0];
   await applyAccelerator(ctx, fastest);
-  ctx.toast.info(`最快加速源延迟 ${meta.latency}ms`);
+  ctx.toast.info(
+    typeof meta.throughput === "number"
+      ? `最快加速源 ${meta.throughput} Mbps / ${meta.latency}ms`
+      : `最快加速源延迟 ${meta.latency}ms`,
+  );
 };
 
 const checkUpdates = async (ctx) => {
@@ -397,11 +483,23 @@ const createSettingsComponent = (ctx) =>
 
       const latencyMeta = (base) => {
         const result = state.results?.[base];
-        if (!result) return { text: "未测速", className: "" };
-        if (result.ok) {
-          return { text: `${result.latency}ms`, className: "is-ok" };
+        if (!result) return { text: "未测速", className: "", title: "" };
+        if (!result.ok) {
+          return { text: result.error || "失败", className: "is-fail", title: result.error || "" };
         }
-        return { text: result.error || "失败", className: "is-fail" };
+        const parts = [];
+        if (typeof result.throughput === "number") parts.push(`${result.throughput}Mbps`);
+        if (typeof result.latency === "number") parts.push(`${result.latency}ms`);
+        return {
+          text: parts.join(" / ") || "可用",
+          className: "is-ok",
+          title: [
+            typeof result.throughput === "number" ? `下载速度 ${result.throughput} Mbps` : "",
+            typeof result.latency === "number" ? `响应延迟 ${result.latency} ms` : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        };
       };
 
       const mirrorItem = (mirror) => {
@@ -418,7 +516,9 @@ const createSettingsComponent = (ctx) =>
               active ? "is-active" : "",
               isTesting ? "is-testing" : "",
             ],
-            title: `${mirror.note}\n点击应用该加速源`,
+            title: [mirror.note, meta.title, "点击应用该加速源"]
+              .filter(Boolean)
+              .join("\n"),
             onClick: () => void applyAccelerator(ctx, base),
           },
           [
@@ -505,13 +605,16 @@ const createSettingsComponent = (ctx) =>
                   variant: "primary",
                   size: "xs",
                   disabled: testing.value,
-                  onClick: () => void runSpeedTest(ctx),
+                  onClick: () =>
+                    void runSpeedTest(ctx, { useCache: !state.resultsTimestamp }),
                 },
                 {
                   default: () =>
                     testing.value && testProgress.value
                       ? `测速中 ${testProgress.value.done}/${testProgress.value.total}…`
-                      : "一键测速",
+                      : state.resultsTimestamp
+                        ? "重新测速"
+                        : "一键测速",
                 },
               ),
               h(
@@ -545,7 +648,7 @@ const createSettingsComponent = (ctx) =>
             h(
               "p",
               { class: "echo-github-accelerator-hint" },
-              "点击条目即可应用；测速使用 EchoMusic 仓库 package.json 小文件测量延迟。优先选择美国节点，避免流量集中到亚洲公益节点。",
+              "点击条目即可应用；测速同时统计下载速度与响应延迟，「应用最快」按下载速度优先排序。结果缓存 30 分钟。优先选择美国节点，避免流量集中到亚洲公益节点。",
             ),
           ]),
 
@@ -607,10 +710,12 @@ const registerSettings = (ctx) => {
 };
 
 export async function activate(ctx) {
+  const savedResults = await loadCachedResults(ctx);
   state = ctx.vue.reactive({
     settings: normalizeSettings(await ctx.storage.get(STORAGE_KEY)),
     hostProxy: getHostProxy(ctx),
-    results: {},
+    results: savedResults?.results ?? {},
+    resultsTimestamp: savedResults?.timestamp ?? null,
     testing: false,
     testProgress: null,
   });
@@ -623,29 +728,39 @@ export async function activate(ctx) {
   hostProxyUnwatch = ctx.vue.watch(
     () => ctx.settings?.githubProxyUrl,
     (value) => {
-      state.hostProxy = normalizeBase(value);
+      const next = normalizeBase(value);
+      state.hostProxy = next;
+      // 用户可能在宿主「设置 → 网络」直接改值，此时同步插件记录，避免下次自动应用覆盖用户选择
+      if (next !== state.settings.selectedBase) {
+        void saveSettings(ctx, { selectedBase: next });
+      }
     },
   );
 
-  ctx.commands.register("apply-selected", async () => {
-    if (!state.settings.selectedBase) {
-      ctx.toast.warning("尚未选择加速源，请到插件设置中选择");
-      return;
-    }
-    await applyAccelerator(ctx, state.settings.selectedBase);
-  }, { title: "应用已选 GitHub 加速源" });
+  ctx.commands.register(
+    "apply-selected",
+    async () => {
+      if (!state.settings.selectedBase) {
+        ctx.toast.warning("尚未选择加速源，请到插件设置中选择");
+        return;
+      }
+      await applyAccelerator(ctx, state.settings.selectedBase);
+    },
+    { title: "应用已选 GitHub 加速源" },
+  );
 
-  ctx.commands.register("speed-test", () => runSpeedTest(ctx), {
-    title: "测速 GitHub 加速源",
-  });
+  ctx.commands.register(
+    "speed-test",
+    () => runSpeedTest(ctx, { useCache: false }),
+    { title: "测速 GitHub 加速源" },
+  );
 
   ctx.commands.register("check-updates", () => checkUpdates(ctx), {
     title: "通过加速源检查更新",
   });
 
   if (state.settings.autoApply && state.settings.selectedBase) {
-    ctx.settings.githubProxyUrl = state.settings.selectedBase;
-    state.hostProxy = state.settings.selectedBase;
+    await applyAccelerator(ctx, state.settings.selectedBase);
   }
 
   ctx.toast.success(`${ctx.manifest.name} 已启用`);

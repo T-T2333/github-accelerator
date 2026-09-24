@@ -6,13 +6,23 @@ Copyright (C) 2026 T-T2333
   Github Enhancement - High Speed Download
   Author: X.I.U (XIU2)
   Source: https://github.com/XIU2/UserScript
-  Greasyfork: https://greasyfork.org/zh-CN/scripts/412245
+  File:   GithubEnhanced-High-Speed-Download.user.js
   License: GPL-3.0
 
-原作者版权以原仓库声明为准。本插件的修改包括但不限于：
+原作者版权以原仓库声明为准。
+
+本插件的修改包括但不限于：
   - 将浏览器油猴脚本移植为 EchoMusic 插件运行时（manifest + ESM activate/deactivate）
-  - 移除 github.com 页面 DOM 注入相关功能
+  - 移除 github.com 页面 DOM 注入相关功能（Raw 按钮、Clone 命令、☁ 图标等）
   - 按 EchoMusic「${加速源}/${原始URL}」拼接规则筛选兼容加速源
-  - 新增测速、一键应用、宿主设置同步与设置面板 UI
+  - 新增下载速度与延迟双维度测速、并发限流、结果缓存
+  - 新增宿主设置回读校验、加速源排序、一键应用最快
+  - 新增上游镜像列表自动同步（scripts/sync-mirrors.mjs + GitHub Actions）
+  - 新增集成测试与可用性实测脚本
+  - 图标更换为自绘 SVG
+
+加速源列表数据的来源：
+  https://github.com/XIU2/UserScript
+  （每日自动同步；失效源经实测后由 mirrors.overrides.json 下线）
 
 本插件整体按 GPL-3.0 授权，详见同目录 LICENSE。

@@ -1,0 +1,30 @@
+{
+  "exclude": [
+    "https://gh.h233.eu.org",
+    "https://ghproxy.it",
+    "https://gh.jasonzeng.dev",
+    "https://ghp.keleyaa.com",
+    "https://ghproxy.monkeyray.net",
+    "https://xget.xi-xu.me/gh",
+    "https://ghfast.top",
+    "https://down.npee.cn"
+  ],
+  "regions": {
+    "https://cdn.gh-proxy.org": "其他",
+    "https://edgeone.gh-proxy.org": "其他",
+    "https://ghproxy.net": "法国",
+    "https://wget.la": "其他",
+    "https://hk.gh-proxy.org": "香港"
+  },
+  "notes": {
+    "https://cdn.gh-proxy.org": "[Fastly CDN] - 该公益加速源由 [gh-proxy.com] 提供",
+    "https://edgeone.gh-proxy.org": "[edgeone] - 该公益加速源由 [gh-proxy.com] 提供",
+    "https://ghproxy.net": "[法国] - 该公益加速源由 [ghproxy.net] 提供",
+    "https://wget.la": "[中国香港、中国台湾、日本、美国等]（CDN 不固定）- 该公益加速源由 [ucdn.me] 提供",
+    "https://hk.gh-proxy.org": "[中国香港] - 该公益加速源由 [gh-proxy.com] 提供"
+  },
+  "providers": {},
+  "extra": [
+    "https://hk.gh-proxy.org"
+  ]
+}

@@ -1,0 +1,84 @@
+name: Sync upstream mirrors
+
+on:
+  schedule:
+    - name: Daily mirror sync
+      cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      prune_dead:
+        description: "自动将失效源写入 exclude"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-mirrors
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Sync mirror list from upstream
+        id: sync
+        run: |
+          set -euo pipefail
+          if node scripts/sync-mirrors.mjs; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          if git diff --quiet -- index.js mirrors.generated.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Probe mirror availability
+        if: steps.sync.outputs.changed == 'true'
+        continue-on-error: true
+        run: node scripts/probe-mirrors.mjs | tee mirror-report.txt
+
+      - name: Open sync pull request
+        if: steps.sync.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/sync-mirrors
+          base: main
+          title: "chore: sync upstream mirror list"
+          commit-message: "chore: sync upstream mirror list"
+          body: |
+            自动同步 [XIU2/UserScript](https://github.com/XIU2/UserScript) 中
+            `GithubEnhanced-High-Speed-Download.user.js` 的加速源列表。
+
+            - 仅保留与 EchoMusic `${加速源}/${原始URL}` 拼接格式兼容的条目
+            - 跳过上游已注释掉的失效源
+            - 应用 `mirrors.overrides.json` 中的 exclude / 人工补充
+
+            ### 镜像可用性报告
+            ```
+            $(cat mirror-report.txt 2>/dev/null || echo "未执行")
+            ```
+          labels: automated
+
+      - name: Summary
+        run: |
+          {
+            echo "### 加速源同步"
+            echo ""
+            if [ "${{ steps.sync.outputs.changed }}" = "true" ]; then
+              echo "检测到上游变化，已创建同步 PR。"
+            else
+              echo "上游无变化，无需同步。"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

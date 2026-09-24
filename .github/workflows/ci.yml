@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate manifest
+        run: |
+          node -e "
+          const m = require('./manifest.json');
+          const required = ['id','name','version','description','author','main'];
+          for (const key of required) {
+            if (!m[key]) throw new Error('manifest 缺少字段: ' + key);
+          }
+          if (!m.capabilities || Object.values(m.capabilities).some(Boolean)) {
+            throw new Error('本插件不应申请敏感 capability');
+          }
+          console.log('manifest OK:', m.id, m.version);
+          "
+
+      - name: Syntax check
+        run: |
+          node --check index.js
+          node --check scripts/sync-mirrors.mjs
+          node --check scripts/probe-mirrors.mjs
+
+      - name: Integration test
+        run: node scripts/test-plugin.mjs
+
+      - name: Verify generated mirrors are current
+        run: node scripts/sync-mirrors.mjs --check
