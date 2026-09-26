@@ -2,7 +2,8 @@ name: Sync upstream mirrors
 
 on:
   schedule:
-    - cron: "17 3 * * *"
+    # 每周一 03:17 UTC（约 11:17 北京时间）
+    - cron: "17 3 * * 1"
   workflow_dispatch:
 
 permissions:

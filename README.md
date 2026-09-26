@@ -14,7 +14,8 @@
 | 自定义加速源 | 手动输入任意兼容地址 |
 | 启动自动应用 | 记住上次选择，启动时同步到宿主设置 |
 | 检查更新 | 通过当前加速源触发 EchoMusic 检查更新 |
-| 上游同步 | GitHub Actions 每日自动同步上游镜像列表并直接提交 |
+| 上游同步 | GitHub Actions 每周自动同步上游镜像列表并直接提交 |
+| 仓库保活 | 独立工作流每月提交一次，防止 GitHub 停用定时任务 |
 | 命令 | `apply-selected`、`speed-test`、`check-updates` |
 
 应用后写入宿主「设置 → 网络 → GitHub 加速地址」（`githubProxyUrl`），同时作用于：
@@ -46,7 +47,7 @@ Windows: %APPDATA%\echo-music\plugins\github-accelerator\
 ```text
 XIU2/UserScript (GithubEnhanced-High-Speed-Download.user.js)
         │
-        │  每日 cron + 手动触发
+        │  每周一 03:17 UTC + 手动触发
         ▼
 scripts/sync-mirrors.mjs
         │  解析 download_url_us
@@ -63,6 +64,25 @@ GitHub Actions 直接提交到 main（含可用性实测摘要）
 > EchoMusic 官方插件源通过 `echo-plugins.json` 中的 `repo` 字段直接拉取本仓库，
 > 因此**无需向官方仓库提交 PR**；镜像更新在本仓库 `main` 生效后，
 > 官方源的用户刷新插件列表即可获取新版。
+
+## 仓库保活
+
+GitHub 会在**公开仓库连续 60 天无活动时自动停用定时工作流**。本仓库的镜像同步为每周一次，若长期无变化就可能出现「静默断档」，因此有一个独立的工作流负责保活：
+
+```text
+.github/workflows/keepalive.yml
+        │  每月 1 号 00:00 UTC
+        ▼
+更新 .github/KEEPALIVE.md（记录时间、run 编号、距上次提交天数）
+        │
+        ▼
+提交到 main
+```
+
+- 与镜像同步**职责分离**：同步工作流失败不影响保活，保活也不会产生镜像改动
+- 每月一次相对 60 天阈值留有充足余量
+- 提交前用 `git diff --staged --quiet` 判断，仅在内容变化时提交
+- 推送失败自动重试 5 次（10/20/30/40/50s 退避）
 
 同步支持三个上游源，按顺序回退：
 
@@ -108,9 +128,12 @@ github-accelerator/
     sync-mirrors.mjs        # 上游同步
     probe-mirrors.mjs       # 可用性实测
     test-plugin.mjs         # 集成测试
-  .github/workflows/
-    sync-mirrors.yml        # 定时同步
-    ci.yml                  # 测试
+  .github/
+    KEEPALIVE.md              # 保活记录（自动更新）
+    workflows/
+      sync-mirrors.yml        # 每周同步上游镜像
+      keepalive.yml           # 每月仓库保活
+      ci.yml                  # 测试与校验
   README.md
   LICENSE
   NOTICE
