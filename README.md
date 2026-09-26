@@ -40,75 +40,31 @@ Windows: %APPDATA%\echo-music\plugins\github-accelerator\
 - **加速源为第三方公益服务**，可用性与速度不由本项目保证。失效源会被上游注释或由本仓库的 `mirrors.overrides.json` 下线。
 - **写入宿主设置使用非公开接口**：`ctx.settings.githubProxyUrl` 是共享 Pinia store，宿主未提供正式的插件设置写入 API。插件在写入后会回读校验，若宿主重构导致失效会给出错误提示。
 
-## 加速源同步机制
+## 镜像维护
 
-镜像列表**不手工维护**，由以下流程保证与上游一致：
+镜像列表不手工维护，由 GitHub Actions 自动同步：
 
-```text
-XIU2/UserScript (GithubEnhanced-High-Speed-Download.user.js)
-        │
-        │  每周一 03:17 UTC + 手动触发
-        ▼
-scripts/sync-mirrors.mjs
-        │  解析 download_url_us
-        │  跳过上游已注释的失效源
-        │  过滤与宿主拼接格式不兼容的镜像
-        │  应用 mirrors.overrides.json（exclude / extra / regions / notes）
-        ▼
-index.js 中 MIRRORS:BEGIN..END 标记区 + mirrors.generated.json
-        │
-        ▼
-GitHub Actions 直接提交到 main（含可用性实测摘要）
-```
+| 工作流 | 频率 | 作用 |
+| --- | --- | --- |
+| `sync-mirrors` | 每周一 | 拉取上游脚本，生成镜像列表并提交 |
+| `keepalive` | 每月 | 提交 `.github/KEEPALIVE.md`，避免 GitHub 停用定时任务 |
+| `ci` | 每次 push | 校验 manifest、语法、集成测试、镜像是否为最新 |
 
-> EchoMusic 官方插件源通过 `echo-plugins.json` 中的 `repo` 字段直接拉取本仓库，
-> 因此**无需向官方仓库提交 PR**；镜像更新在本仓库 `main` 生效后，
-> 官方源的用户刷新插件列表即可获取新版。
+同步会自动跳过上游注释掉的失效源、过滤与宿主拼接格式不兼容的镜像，并应用 `mirrors.overrides.json`。
 
-## 仓库保活
+官方插件源通过 `echo-plugins.json` 的 `repo` 字段直接拉取本仓库，因此**无需向官方仓库提交 PR**；镜像更新在 `main` 生效后，用户刷新插件列表即可获取新版。
 
-GitHub 会在**公开仓库连续 60 天无活动时自动停用定时工作流**。本仓库的镜像同步为每周一次，若长期无变化就可能出现「静默断档」，因此有一个独立的工作流负责保活：
-
-```text
-.github/workflows/keepalive.yml
-        │  每月 1 号 00:00 UTC
-        ▼
-更新 .github/KEEPALIVE.md（记录时间、run 编号、距上次提交天数）
-        │
-        ▼
-提交到 main
-```
-
-- 与镜像同步**职责分离**：同步工作流失败不影响保活，保活也不会产生镜像改动
-- 每月一次相对 60 天阈值留有充足余量
-- 提交前用 `git diff --staged --quiet` 判断，仅在内容变化时提交
-- 推送失败自动重试 5 次（10/20/30/40/50s 退避）
-
-同步支持三个上游源，按顺序回退：
-
-1. `api.github.com` contents API（最稳定）
-2. `raw.githubusercontent.com`
-3. `update.greasyfork.org`
-
-### 手动同步
+### 常用命令
 
 ```bash
-npm run sync:mirrors     # 拉取上游并更新镜像列表
-npm run check:mirrors    # 仅检查是否有更新（CI 用，有变化时 exit 1）
-npm run probe:mirrors    # 实测各镜像可用性/速度
-npm test                 # 插件集成测试（模拟宿主 ctx）
+npm run sync:mirrors     # 手动同步镜像
+npm run probe:mirrors    # 实测各镜像可用性
+npm test                 # 集成测试
 ```
 
 ### 下线失效源
 
-编辑 `mirrors.overrides.json`：
-
-```json
-{
-  "exclude": ["https://example.com"],
-  "extra": ["https://your-mirror.example.com"]
-}
-```
+编辑 `mirrors.overrides.json` 的 `exclude`（下线）或 `extra`（补充）。
 
 ## 能力声明
 
