@@ -9,7 +9,9 @@
     "test": "node scripts/test-plugin.mjs",
     "sync:mirrors": "node scripts/sync-mirrors.mjs",
     "check:mirrors": "node scripts/sync-mirrors.mjs --check",
-    "probe:mirrors": "node scripts/probe-mirrors.mjs"
+    "probe:mirrors": "node scripts/probe-mirrors.mjs",
+    "bump:version": "node scripts/bump-version.mjs",
+    "check:version": "node scripts/check-version.mjs"
   },
   "engines": {
     "node": ">=18"
