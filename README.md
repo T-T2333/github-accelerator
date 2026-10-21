@@ -15,6 +15,7 @@
 | 启动自动应用 | 记住上次选择，启动时同步到宿主设置 |
 | 检查更新 | 通过当前加速源触发 EchoMusic 检查更新 |
 | 上游同步 | GitHub Actions 每周自动同步上游镜像列表并直接提交 |
+| 版本更新 | 每次同步上游自动递增版本号并发布 Release，EchoMusic 可检测到新版本 |
 | 仓库保活 | 独立工作流每月提交一次，防止 GitHub 停用定时任务 |
 | 命令 | `apply-selected`、`speed-test`、`check-updates` |
 
@@ -46,18 +47,36 @@ Windows: %APPDATA%\echo-music\plugins\github-accelerator\
 
 | 工作流 | 频率 | 作用 |
 | --- | --- | --- |
-| `sync-mirrors` | 每周一 | 拉取上游脚本，生成镜像列表并提交 |
+| `sync-mirrors` | 每周一 | 拉取上游脚本，生成镜像列表、递增版本号并提交、打 tag 发 Release |
 | `keepalive` | 每月 | 提交 `.github/KEEPALIVE.md`，避免 GitHub 停用定时任务 |
-| `ci` | 每次 push | 校验 manifest、语法、集成测试、镜像是否为最新 |
+| `ci` | 每次 push | 校验 manifest、版本号一致性、语法、集成测试、镜像是否为最新 |
 
 同步会自动跳过上游注释掉的失效源、过滤与宿主拼接格式不兼容的镜像，并应用 `mirrors.overrides.json`。
 
 官方插件源通过 `echo-plugins.json` 的 `repo` 字段直接拉取本仓库，因此**无需向官方仓库提交 PR**；镜像更新在 `main` 生效后，用户刷新插件列表即可获取新版。
 
+## 版本与发布
+
+`manifest.json` 的 `version` 是 EchoMusic 判断「有新版可更新」的**唯一信号**：宿主用它与已安装版本做 semver 比较，只有变大才会提示更新。因此镜像同步必须同时递增版本号，否则用户端永远收不到更新提示。
+
+| 项 | 约定 |
+| --- | --- |
+| 版本真源 | `manifest.json` 的 `version`（`package.json` 由脚本镜像同步） |
+| 自动递增 | 上游同步只 `+patch`（`1.1.1 → 1.1.2`） |
+| 人工递增 | 插件功能有变更时手动 `npm run bump:version minor` / `major` |
+| 与上游解耦 | 本插件版本**不跟随**上游脚本版本；上游版本记录在 `mirrors.generated.json` 的 `upstream.version` |
+| 发布 | 每次同步成功后自动打 `v<version>` 标签并创建 GitHub Release |
+| 一致性 | CI 校验 `manifest.json` 与 `package.json` 版本号一致，CI 失败即说明有人只改了一半 |
+
+版本号自增是幂等的：始终基于**已提交**的版本 +1，推送失败后重跑不会连跳版本。
+
 ### 常用命令
 
 ```bash
 npm run sync:mirrors     # 手动同步镜像
+npm run check:mirrors    # 校验镜像是否为最新（上游不可达时降级为警告）
+npm run bump:version     # 递增版本号（patch，npm run bump:version -- minor）
+npm run check:version    # 校验两个文件的版本号一致
 npm run probe:mirrors    # 实测各镜像可用性
 npm test                 # 集成测试
 ```
@@ -84,6 +103,8 @@ github-accelerator/
     sync-mirrors.mjs        # 上游同步
     probe-mirrors.mjs       # 可用性实测
     test-plugin.mjs         # 集成测试
+    bump-version.mjs        # 版本号自增（manifest.json 为真源）
+    check-version.mjs       # 版本号一致性校验（CI 守卫）
   .github/
     KEEPALIVE.md              # 保活记录（自动更新）
     workflows/

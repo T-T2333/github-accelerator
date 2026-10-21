@@ -203,9 +203,48 @@ const renderBlock = (mirrors, upstream) => {
   ].join("\n");
 };
 
+// 比较时忽略 generatedAt，否则每次运行都会判定为有变化。
+// 同时忽略 upstream.url：多源回退时命中的上游地址会变，但镜像内容没变，
+// 若把它算作变化，版本号会被无意义地每周自增一次。
+const parseGenerated = (text) => {
+  if (!text) return null;
+  try {
+    const { generatedAt, ...rest } = JSON.parse(text);
+    return rest;
+  } catch {
+    return null;
+  }
+};
+
+const comparablePayload = (payload) =>
+  JSON.stringify({
+    upstream: {
+      version: payload?.upstream?.version ?? "",
+      arrays: payload?.upstream?.arrays ?? [],
+    },
+    count: payload?.count ?? 0,
+    mirrors: payload?.mirrors ?? [],
+  });
+
 const main = async () => {
   const checkOnly = process.argv.includes("--check");
-  const { source, url: upstreamUrl } = await fetchUpstream();
+
+  let upstream;
+  try {
+    upstream = await fetchUpstream();
+  } catch (error) {
+    // 上游不可达属于外部抖动。--check 模式下降级为警告并以 0 退出，
+    // 否则一次网络抖动就会把 CI 标红。
+    if (checkOnly) {
+      console.log("::warning::上游暂时不可达，跳过本次校验");
+      console.log(`  ${error.message}`);
+      process.exitCode = 0;
+      return;
+    }
+    throw error;
+  }
+
+  const { source, url: upstreamUrl } = upstream;
   const version = parseVersion(source);
   const arrays = extractArrays(source);
   const overrides = JSON.parse(await readFile(OVERRIDES_FILE, "utf8"));
@@ -240,18 +279,11 @@ const main = async () => {
     2,
   )}\n`;
 
-  // 比较时忽略 generatedAt，否则每次运行都会判定为有变化
-  const currentGenerated = await readFile(GENERATED_FILE, "utf8").catch(() => "");
-  const stripTimestamp = (text) => {
-    if (!text) return "";
-    try {
-      const { generatedAt, ...rest } = JSON.parse(text);
-      return JSON.stringify(rest);
-    } catch {
-      return text;
-    }
-  };
-  const changed = stripTimestamp(currentGenerated) !== JSON.stringify(nextPayload);
+  const currentPayload = parseGenerated(
+    await readFile(GENERATED_FILE, "utf8").catch(() => ""),
+  );
+  const changed =
+    comparablePayload(currentPayload) !== comparablePayload(nextPayload);
   if (checkOnly) {
     console.log(
       changed ? "CHANGED" : "UPSTREAM_UP_TO_DATE",

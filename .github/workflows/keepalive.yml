@@ -51,11 +51,14 @@ jobs:
           fi
           git commit -m "chore: keepalive at $(date -u +'%Y-%m-%d')"
           for i in 1 2 3 4 5; do
-            if git push; then
+            # 先 rebase 再推：与 sync-mirrors 等并发提交会造成非快进冲突，
+            # 直接重试 git push 是救不回来的。
+            if git pull --rebase origin main && git push; then
               echo "保活提交已推送"
               exit 0
             fi
             echo "::warning::推送失败，第 $i 次重试"
+            git rebase --abort || true
             sleep $((i * 10))
           done
           echo "::error::保活提交推送失败"

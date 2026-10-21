@@ -39,9 +39,16 @@ jobs:
           node --check index.js
           node --check scripts/sync-mirrors.mjs
           node --check scripts/probe-mirrors.mjs
+          node --check scripts/bump-version.mjs
+          node --check scripts/check-version.mjs
+
+      - name: Check version consistency
+        run: node scripts/check-version.mjs
 
       - name: Integration test
         run: node scripts/test-plugin.mjs
 
+      # 上游不可达时脚本会降级为警告并以 0 退出（外部抖动不该让 CI 变红）；
+      # 真正检测到镜像过期时才会以 1 退出。
       - name: Verify generated mirrors are current
         run: node scripts/sync-mirrors.mjs --check

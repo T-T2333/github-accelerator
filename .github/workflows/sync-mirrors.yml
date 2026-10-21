@@ -19,6 +19,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # 需要完整历史：push 前要 git pull --rebase，浅克隆会导致 rebase 失败
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -39,27 +42,73 @@ jobs:
             git diff --stat -- index.js mirrors.generated.json
           fi
 
+      # manifest.json 的 version 是 EchoMusic 判断「有新版可更新」的唯一信号，
+      # 镜像变了却不同步版本号，用户端就永远收不到更新提示。
+      - name: Bump version
+        id: bump
+        if: steps.sync.outputs.changed == 'true'
+        run: node scripts/bump-version.mjs patch
+
       - name: Probe mirror availability
         if: steps.sync.outputs.changed == 'true'
         continue-on-error: true
         run: node scripts/probe-mirrors.mjs > mirror-report.txt 2>&1 || true
 
       - name: Commit and push
+        id: commit
         if: steps.sync.outputs.changed == 'true'
         run: |
           set -uo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.js mirrors.generated.json
-          git commit -m "chore(mirrors): sync upstream accelerator list"
+          git add index.js mirrors.generated.json manifest.json package.json
+          git commit -m "chore(mirrors): sync upstream accelerator list → v${{ steps.bump.outputs.version }}"
+          pushed=false
           for i in 1 2 3 4 5; do
-            if git push; then
-              echo "推送成功"
+            # 先 rebase 再推：keepalive 等并发提交会造成非快进冲突，
+            # 直接重试 git push 是救不回来的。
+            if git pull --rebase origin main && git push origin main; then
+              pushed=true
               break
             fi
             echo "::warning::推送失败，第 $i 次重试"
+            git rebase --abort || true
             sleep $((i * 10))
           done
+          if [ "$pushed" != "true" ]; then
+            echo "::error::推送失败，同步结果未落到 main"
+            exit 1
+          fi
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and publish release
+        id: release
+        if: steps.commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          VERSION="${{ steps.bump.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          UPSTREAM_VERSION=$(node --input-type=module -e "import {readFileSync} from 'node:fs';const j=JSON.parse(readFileSync('mirrors.generated.json','utf8'));console.log(j.upstream?.version ?? 'unknown')")
+          MIRROR_COUNT=$(node --input-type=module -e "import {readFileSync} from 'node:fs';const j=JSON.parse(readFileSync('mirrors.generated.json','utf8'));console.log(j.count ?? 0)")
+
+          # 幂等：重跑时不重复打标签、不重复建 Release
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "标签 v$VERSION 已存在，跳过"
+          else
+            git tag -a "v$VERSION" -m "v$VERSION"
+            git push origin "v$VERSION"
+          fi
+
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "Release v$VERSION 已存在，跳过"
+          else
+            NOTES=$(printf '自动同步上游镜像列表。\n\n- 上游脚本版本：%s\n- 加速源数量：%s\n' "$UPSTREAM_VERSION" "$MIRROR_COUNT")
+            gh release create "v$VERSION" --title "v$VERSION" --notes "$NOTES"
+          fi
 
       - name: Summary
         if: always()
@@ -68,7 +117,12 @@ jobs:
             echo "### 加速源同步"
             echo ""
             if [ "${{ steps.sync.outputs.changed }}" = "true" ]; then
-              echo "检测到上游变化，已提交到 main。"
+              echo "检测到上游变化，已提交到 main，版本 v${{ steps.bump.outputs.version }}。"
+              if [ "${{ steps.commit.outputs.pushed }}" = "true" ]; then
+                echo "标签 \`v${{ steps.bump.outputs.version }}\` 已发布。"
+              else
+                echo "::error::提交未推送成功。::error::"
+              fi
             else
               echo "上游无变化，无需同步。"
             fi
