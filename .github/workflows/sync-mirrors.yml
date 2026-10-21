@@ -32,7 +32,20 @@ jobs:
         id: sync
         run: |
           set -uo pipefail
-          node scripts/sync-mirrors.mjs || echo "::warning::同步脚本执行失败，跳过本次同步"
+          # 退出码约定：0=成功，2=上游不可达（外部抖动），1=真正的脚本错误。
+          # 三者必须分开，否则上游挂了会被当成「上游无变化」而把 job 标绿。
+          status=0
+          node scripts/sync-mirrors.mjs || status=$?
+          if [ "$status" -eq 2 ]; then
+            echo "::warning::上游暂时不可达，本次未同步（镜像列表保持原样）"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo "::error::同步脚本执行失败（退出码 $status）"
+            exit "$status"
+          fi
           if git diff --quiet -- index.js mirrors.generated.json; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "上游无变化"
@@ -81,34 +94,66 @@ jobs:
           fi
           echo "pushed=true" >> "$GITHUB_OUTPUT"
 
+      # 这一步无条件执行：版本号可能已经提交上去了，但上次跑的时候打标签或建
+      # Release 失败了（网络抖动、token 权限等）。下次运行时按「已提交的版本」
+      # 补齐缺失的标签/Release，流水线因此可以自愈。
       - name: Tag and publish release
         id: release
-        if: steps.commit.outputs.pushed == 'true'
+        # always() 让它在前面步骤失败时也跑（好补齐缺失的标签/Release）；
+        # !cancelled() 保证整个 job 被取消时不去做网络操作。
+        if: always() && !cancelled()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          VERSION="${{ steps.bump.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          UPSTREAM_VERSION=$(node --input-type=module -e "import {readFileSync} from 'node:fs';const j=JSON.parse(readFileSync('mirrors.generated.json','utf8'));console.log(j.upstream?.version ?? 'unknown')")
-          MIRROR_COUNT=$(node --input-type=module -e "import {readFileSync} from 'node:fs';const j=JSON.parse(readFileSync('mirrors.generated.json','utf8'));console.log(j.count ?? 0)")
+          # 以「已提交的版本」为准：工作区里的 manifest.json 可能还是没提交的升版本结果
+          VERSION=$(git show HEAD:manifest.json | node -e "let s='';process.stdin.setEncoding('utf8');process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>console.log(JSON.parse(s).version))")
+          if [ -z "$VERSION" ]; then
+            echo "::error::读不到 HEAD 上的版本号"
+            exit 1
+          fi
 
-          # 幂等：重跑时不重复打标签、不重复建 Release
+          # 本地 HEAD 必须已经推到远端，否则会给一个用户还拿不到的提交打标签
+          git fetch origin main
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            echo "::warning::本地 HEAD 与 origin/main 不一致，跳过标签与 Release"
+            echo "status=skipped" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # 幂等：标签存在就不重复打；若指向别的提交也不强行移动（已发布的标签不能改）
           if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
-            echo "标签 v$VERSION 已存在，跳过"
+            TAG_SHA=$(git rev-list -n 1 "v$VERSION")
+            if [ "$TAG_SHA" != "$(git rev-parse HEAD)" ]; then
+              echo "::warning::标签 v$VERSION 已存在但指向 $(git rev-parse --short "$TAG_SHA")，不移动已有标签"
+            else
+              echo "标签 v$VERSION 已存在，跳过"
+            fi
           else
             git tag -a "v$VERSION" -m "v$VERSION"
-            git push origin "v$VERSION"
+            if ! git push origin "v$VERSION"; then
+              echo "::error::推送标签 v$VERSION 失败"
+              exit 1
+            fi
+            echo "已创建标签 v$VERSION"
           fi
 
           if gh release view "v$VERSION" >/dev/null 2>&1; then
             echo "Release v$VERSION 已存在，跳过"
           else
+            UPSTREAM_VERSION=$(node --input-type=module -e "import {readFileSync} from 'node:fs';const j=JSON.parse(readFileSync('mirrors.generated.json','utf8'));console.log(j.upstream?.version ?? 'unknown')")
+            MIRROR_COUNT=$(node --input-type=module -e "import {readFileSync} from 'node:fs';const j=JSON.parse(readFileSync('mirrors.generated.json','utf8'));console.log(j.count ?? 0)")
             NOTES=$(printf '自动同步上游镜像列表。\n\n- 上游脚本版本：%s\n- 加速源数量：%s\n' "$UPSTREAM_VERSION" "$MIRROR_COUNT")
-            gh release create "v$VERSION" --title "v$VERSION" --notes "$NOTES"
+            if ! gh release create "v$VERSION" --title "v$VERSION" --notes "$NOTES"; then
+              echo "::error::创建 Release v$VERSION 失败"
+              exit 1
+            fi
+            echo "已创建 Release v$VERSION"
           fi
+          echo "status=ok" >> "$GITHUB_OUTPUT"
 
       - name: Summary
         if: always()
@@ -119,10 +164,16 @@ jobs:
             if [ "${{ steps.sync.outputs.changed }}" = "true" ]; then
               echo "检测到上游变化，已提交到 main，版本 v${{ steps.bump.outputs.version }}。"
               if [ "${{ steps.commit.outputs.pushed }}" = "true" ]; then
-                echo "标签 \`v${{ steps.bump.outputs.version }}\` 已发布。"
+                if [ "${{ steps.release.outputs.status }}" = "ok" ]; then
+                  echo "标签 \`v${{ steps.bump.outputs.version }}\` 与 Release 已就绪。"
+                else
+                  echo "⚠️ 标签/Release 未就绪，下次运行会自动补齐。"
+                fi
               else
                 echo "::error::提交未推送成功。::error::"
               fi
+            elif [ "${{ steps.sync.outputs.skipped }}" = "true" ]; then
+              echo "⚠️ 上游暂时不可达，本次未同步，镜像列表保持原样。"
             else
               echo "上游无变化，无需同步。"
             fi

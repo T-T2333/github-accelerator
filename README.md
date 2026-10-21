@@ -64,11 +64,15 @@ Windows: %APPDATA%\echo-music\plugins\github-accelerator\
 | 版本真源 | `manifest.json` 的 `version`（`package.json` 由脚本镜像同步） |
 | 自动递增 | 上游同步只 `+patch`（`1.1.1 → 1.1.2`） |
 | 人工递增 | 插件功能有变更时手动 `npm run bump:version minor` / `major` |
+| 版本格式 | 必须是 `x.y.z`；预发布号（`1.2.0-beta.1`）无法自动递增，CI 会直接拦下 |
+| 人工改动保护 | 工作区版本与已提交版本不一致时脚本**报错中止、绝不覆盖**；确需在当前版本上递增用 `npm run bump:version -- --from-worktree` |
 | 与上游解耦 | 本插件版本**不跟随**上游脚本版本；上游版本记录在 `mirrors.generated.json` 的 `upstream.version` |
 | 发布 | 每次同步成功后自动打 `v<version>` 标签并创建 GitHub Release |
 | 一致性 | CI 校验 `manifest.json` 与 `package.json` 版本号一致，CI 失败即说明有人只改了一半 |
 
-版本号自增是幂等的：始终基于**已提交**的版本 +1，推送失败后重跑不会连跳版本。
+版本号自增是幂等的：工作区干净时基于**已提交**的版本 +1；若工作区已是上次脚本自己升出来、还没提交的 patch 版本，则保持不变——推送失败后重跑不会连跳版本。
+
+同步流程区分三种结果，不会把失败说成成功：上游无变化（跳过）、上游不可达（外部抖动，警告并保持原样）、脚本或解析出错（直接标红）。发版步骤按**已提交的版本**幂等补齐缺失的标签与 Release，因此上一次发版失败会在下次运行时自动修复。
 
 ### 常用命令
 
@@ -76,7 +80,7 @@ Windows: %APPDATA%\echo-music\plugins\github-accelerator\
 npm run sync:mirrors     # 手动同步镜像
 npm run check:mirrors    # 校验镜像是否为最新（上游不可达时降级为警告）
 npm run bump:version     # 递增版本号（patch，npm run bump:version -- minor）
-npm run check:version    # 校验两个文件的版本号一致
+npm run check:version    # 校验两个文件的版本号一致（且必须是 x.y.z）
 npm run probe:mirrors    # 实测各镜像可用性
 npm test                 # 集成测试
 ```

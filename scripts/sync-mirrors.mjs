@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, rename } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -233,15 +233,12 @@ const main = async () => {
   try {
     upstream = await fetchUpstream();
   } catch (error) {
-    // 上游不可达属于外部抖动。--check 模式下降级为警告并以 0 退出，
-    // 否则一次网络抖动就会把 CI 标红。
-    if (checkOnly) {
-      console.log("::warning::上游暂时不可达，跳过本次校验");
-      console.log(`  ${error.message}`);
-      process.exitCode = 0;
-      return;
-    }
-    throw error;
+    // 上游不可达属于外部抖动，用退出码 2 与真正的脚本错误（退出码 1）区分开：
+    // 工作流据此决定是「警告并跳过」还是「直接标红」。
+    console.log("::warning::上游暂时不可达，跳过本次同步");
+    console.log(`  ${error.message}`);
+    process.exitCode = checkOnly ? 0 : 2;
+    return;
   }
 
   const { source, url: upstreamUrl } = upstream;
@@ -294,8 +291,14 @@ const main = async () => {
   }
 
   if (changed) {
-    await writeFile(INDEX_FILE, nextSource, "utf8");
-    await writeFile(GENERATED_FILE, nextGenerated, "utf8");
+    // 先把两个文件都写进临时文件，再一起改名：中途失败不会留下「index.js 已更新
+    // 但 mirrors.generated.json 还是旧的」这种半更新状态被工作流当成有效改动提交。
+    const tmpIndex = `${INDEX_FILE}.tmp`;
+    const tmpGenerated = `${GENERATED_FILE}.tmp`;
+    await writeFile(tmpIndex, nextSource, "utf8");
+    await writeFile(tmpGenerated, nextGenerated, "utf8");
+    await rename(tmpIndex, INDEX_FILE);
+    await rename(tmpGenerated, GENERATED_FILE);
     console.log(`已更新 ${mirrors.length} 个加速源（上游版本 ${version}）`);
     for (const mirror of mirrors) {
       console.log(`  ${mirror.base} [${mirror.region}] <- ${mirror.origins}`);

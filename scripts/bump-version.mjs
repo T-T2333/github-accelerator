@@ -2,11 +2,15 @@
 // 并与用户已安装的版本做 semver 比较来决定是否提示「可更新」。
 // package.json 的 version 由本脚本镜像同步，两者必须始终一致。
 //
-// 用法：node scripts/bump-version.mjs [patch|minor|major]
+// 用法：node scripts/bump-version.mjs [patch|minor|major] [--from-worktree]
 //
-// 幂等：以「git 里已提交的版本」为基准 +1，而不是以工作区文件为基准。
-// 因此推送失败后重跑（工作区里已经是升过的版本）仍得到同一个版本号，
-// 不会连跳成 1.1.3。非 git 环境（或读不到提交）时退回以工作区文件为基准。
+// 基准版本的选择规则（避免脚本覆盖人工改动）：
+//   1. 工作区版本 == 已提交版本（干净工作区，CI 的常态）→ 以已提交版本为基准递增
+//   2. 工作区版本 == 已提交版本 + patch → 说明是上一次脚本自己升出来、还没提交的，
+//      保持同一版本不变（重跑幂等，不会连跳成 1.1.3）
+//   3. 其他不一致（人工改成了 2.0.0、1.2.0-beta.1 等）→ 直接报错中止，
+//      绝不覆盖人工改动；确需在当前版本上递增时显式加 --from-worktree
+//   4. 非 git 环境（读不到已提交版本）→ 以工作区版本为基准
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
@@ -39,7 +43,7 @@ const nextVersion = (version, kind) => {
 
 const readJson = async (file) => JSON.parse(await readFile(file, "utf8"));
 
-// 读取 HEAD 上已提交的 manifest.json，读不到就返回 null
+// 读取 HEAD 上已提交的 manifest.json，读不到就返回空串
 const readCommittedVersion = async () => {
   try {
     const { stdout } = await execFileAsync("git", ["show", "HEAD:manifest.json"], {
@@ -53,10 +57,16 @@ const readCommittedVersion = async () => {
 };
 
 const main = async () => {
-  const kind = process.argv[2] ?? "patch";
-  if (!KINDS.includes(kind)) {
-    throw new Error(`未知的版本类型：${kind}（可选 ${KINDS.join(" | ")}）`);
+  const args = process.argv.slice(2);
+  const fromWorktree = args.includes("--from-worktree");
+  const kindArg = args.find((arg) => KINDS.includes(arg));
+  const unknown = args.filter((arg) => !KINDS.includes(arg) && arg !== "--from-worktree");
+  if (unknown.length) {
+    throw new Error(
+      `未知参数：${unknown.join(" ")}（版本类型可选 ${KINDS.join(" | ")}，另有 --from-worktree）`,
+    );
   }
+  const kind = kindArg ?? "patch";
 
   const manifest = await readJson(MANIFEST_FILE);
   const pkg = await readJson(PACKAGE_FILE);
@@ -70,8 +80,27 @@ const main = async () => {
   }
 
   const committed = await readCommittedVersion();
-  const base = committed || current;
-  const next = nextVersion(base, kind);
+  let next;
+  let basis;
+
+  if (fromWorktree || !committed) {
+    next = nextVersion(current, kind);
+    basis = fromWorktree ? "工作区版本" : "工作区版本（非 git 环境）";
+  } else if (current === committed) {
+    next = nextVersion(committed, kind);
+    basis = `已提交版本 ${committed}`;
+  } else if (kind === "patch" && current === nextVersion(committed, "patch")) {
+    // 上一次脚本自己升出来的 patch、还没提交：保持同一版本
+    next = current;
+    basis = `已提交版本 ${committed}（工作区已是 ${current}，判定为脚本上次自动递增，保持不变）`;
+  } else {
+    throw new Error(
+      `工作区版本 ${current} 与已提交版本 ${committed} 不一致，且不是脚本自动递增出来的 patch 版本。\n` +
+        `为避免覆盖你的改动，本次不做任何修改。\n` +
+        `  · 想保留 ${current}：直接提交 manifest.json 与 package.json 即可\n` +
+        `  · 想在 ${current} 上继续递增：加 --from-worktree 参数`,
+    );
+  }
 
   if (next !== current) {
     manifest.version = next;
@@ -80,7 +109,9 @@ const main = async () => {
     await writeFile(PACKAGE_FILE, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
   }
 
-  console.log(`版本 ${current} → ${next}${committed ? `（基准：已提交版本 ${committed}）` : ""}`);
+  console.log(
+    `版本 ${current} → ${next}（基准：${basis}）`,
+  );
 
   if (process.env.GITHUB_OUTPUT) {
     await writeFile(
